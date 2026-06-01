@@ -285,7 +285,7 @@ async def query_hermes(user_text: str, user_id: str) -> str:
         "user": user_id,
     }
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=300.0) as client:
         response = await client.post(
             url,
             headers={
