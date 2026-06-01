@@ -1,0 +1,5 @@
+livekit>=1.0.0,<2.0.0
+livekit-api>=1.0.0,<2.0.0
+openai>=1.0.0
+numpy
+python-dotenv
