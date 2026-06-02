@@ -451,7 +451,7 @@ class HermesVoiceBridge:
             # Let the connection stabilize for a second
             await asyncio.sleep(1.5)
             logger.info("Playing initial greeting...")
-            greeting_text = f"Приветики! Как делишки?"
+            greeting_text = f"Hey! How are you?"
             tts_path = await hermes_tts(greeting_text)
             if tts_path:
                 try:
