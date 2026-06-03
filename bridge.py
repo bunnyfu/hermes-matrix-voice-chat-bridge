@@ -86,7 +86,7 @@ MATRIX_ROOM_ID = os.getenv("VOICE_BRIDGE_MATRIX_ROOM_ID", "")
 LIVEKIT_ROOM = os.getenv("LIVEKIT_ROOM", "")
 
 # VAD parameters
-VAD_ENERGY_THRESHOLD = int(os.getenv("VAD_ENERGY_THRESHOLD", "200"))
+VAD_ENERGY_THRESHOLD = int(os.getenv("VAD_ENERGY_THRESHOLD", "250"))
 VAD_SILENCE_DURATION = float(os.getenv("VAD_SILENCE_DURATION", "1.4"))
 VAD_MIN_SPEECH_DURATION = float(os.getenv("VAD_MIN_SPEECH_DURATION", "0.3"))
 
@@ -489,7 +489,7 @@ class HermesVoiceBridge:
         audio_buffer = []
 
         async for frame_event in audio_stream:
-            if self._thinking:
+            if self._processing:
                 continue
 
             frame = frame_event.frame
@@ -497,8 +497,6 @@ class HermesVoiceBridge:
             state = vad.process_frame(samples)
 
             if state == "speech":
-                if self._is_playing:
-                    await self._interrupt_playback()
                 audio_buffer.append(samples.copy())
 
             elif state == "end_of_speech" and audio_buffer:
