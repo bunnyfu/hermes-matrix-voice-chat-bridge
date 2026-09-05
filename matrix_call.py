@@ -134,7 +134,7 @@ class MatrixCallClient:
                 return True
             async def get_encryption_info(self, room_id):
                 from mautrix.types import RoomEncryptionStateEventContent, EncryptionAlgorithm
-                return RoomEncryptionStateEventContent(algorithm=EncryptionAlgorithm.MEGOLM_V1_AES_SHA2)
+                return RoomEncryptionStateEventContent(algorithm=EncryptionAlgorithm.MEGOLM_V1)
             async def find_shared_rooms(self, user_id):
                 return []
 
