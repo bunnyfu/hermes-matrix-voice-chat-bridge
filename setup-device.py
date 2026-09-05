@@ -6,13 +6,26 @@ Three-step flow:
   2. Initialize OlmMachine, upload device keys (identity + OTKs)
   3. Fetch cross-signing keys from SSSS via recovery key, self-sign device
 
+IMPORTANT — store-path alignment:
+  The --store-path MUST point to the same directory that the runtime
+  application (gateway, voice bridge, etc.) will use for its crypto store.
+  This script creates an Olm account and uploads its identity keys + OTKs
+  to the homeserver. If the runtime app uses a different store path, it will
+  generate a *different* Olm identity, and:
+    - The server will reject new OTK uploads (conflicting indices)
+    - The cross-signing signature won't match the runtime keys
+    - The gateway will report "stale one-time keys" or "BAD_ACCOUNT_KEY"
+  Also run this script as the same OS user that the runtime app runs as
+  (e.g. --user hermes), otherwise the crypto.db files will be owned by
+  root and the app won't be able to write to them.
+
 Example (with password):
-  python setup-device.py \
-      --homeserver https://matrix.yourdomain.com \
-      --user @hermes:yourdomain.com \
-      --device-id voice-bridge-01 \
-      --password my-secret-password \
-      --recovery-key 'XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX' \
+  python setup-device.py \\
+      --homeserver https://matrix.yourdomain.com \\
+      --user @hermes:yourdomain.com \\
+      --device-id voice-bridge-01 \\
+      --password my-secret-password \\
+      --recovery-key 'XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX XXXX' \\
       --store-path /opt/data/matrix-store-voice-bridge
 
   Or set environment variables (see --help).
