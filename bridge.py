@@ -45,6 +45,8 @@ if os.path.exists(_env_path):
 import numpy as np
 from livekit import api, rtc
 
+from room_matching import find_allowed_humans, parse_allowed_users, room_matches_members
+
 # ---------------------------------------------------------------------------
 # Hermes-native imports (available inside the container)
 # ---------------------------------------------------------------------------
@@ -81,6 +83,19 @@ MATRIX_RECOVERY_KEY = os.getenv("MATRIX_RECOVERY_KEY", "")
 
 # Matrix room for voice calls
 MATRIX_ROOM_ID = os.getenv("VOICE_BRIDGE_MATRIX_ROOM_ID", "")
+
+# Allowed HUMAN users this bridge serves (comma-separated mxids). Only rooms
+# containing at least one of these (joined Matrix room members) are picked up
+# by discover_room(); other accounts — including other bridges' Herms accounts
+# and our own devices — never trigger a join. Prevents bridge-vs-bridge latching.
+MATRIX_ALLOWED_USERS = parse_allowed_users(os.getenv("MATRIX_ALLOWED_USERS", ""))
+
+# If no allowed-human participant remains in the room for this many seconds,
+# leave the session so a latch self-heals instead of blocking forever.
+BRIDGE_IDLE_EXIT_SECONDS = float(os.getenv("BRIDGE_IDLE_EXIT_SECONDS", "60"))
+
+# Greeting spoken when the agent connects (env-overridable per deployment).
+GREETING_TEXT = os.getenv("BRIDGE_GREETING_TEXT", "Hey! How are you?")
 
 # The LiveKit room name is dynamic — discovered via LiveKit API when a call is active.
 LIVEKIT_ROOM = os.getenv("LIVEKIT_ROOM", "")
@@ -451,7 +466,7 @@ class HermesVoiceBridge:
             # Let the connection stabilize for a second
             await asyncio.sleep(1.5)
             logger.info("Playing initial greeting...")
-            greeting_text = f"Hey! How are you?"
+            greeting_text = GREETING_TEXT
             tts_path = await hermes_tts(greeting_text)
             if tts_path:
                 try:
@@ -659,7 +674,14 @@ async def get_matrix_room_members() -> set[str]:
             return set(data.get("joined", {}).keys())
 
 async def discover_room() -> Optional[str]:
-    """Find the active LiveKit room for the configured Matrix room."""
+    """Find the active LiveKit room for the configured Matrix room.
+
+    A room only matches if it contains at least one ALLOWED HUMAN participant
+    (mxid in MATRIX_ALLOWED_USERS and joined in the Matrix room). Rooms holding
+    only other bridges' agents (own account or non-allowed Herms accounts) are
+    ignored — otherwise two deployed bridges mutually latch onto each other's
+    room and block real human calls forever.
+    """
     members = await get_matrix_room_members()
     lk = api.LiveKitAPI(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
     try:
@@ -667,13 +689,10 @@ async def discover_room() -> Optional[str]:
         for room in rooms.rooms:
             if room.num_participants > 0:
                 parts = await lk.room.list_participants(api.ListParticipantsRequest(room=room.name))
-                for p in parts.participants:
-                    parts_split = p.identity.split(":")
-                    if len(parts_split) >= 2:
-                        mxid = f"{parts_split[0]}:{parts_split[1]}"
-                        if mxid in members and mxid != MATRIX_USER_ID:
-                            logger.info("Found active room: %s (%d participants) matching Matrix members", room.name, room.num_participants)
-                            return room.name
+                identities = [p.identity for p in parts.participants]
+                if room_matches_members(identities, MATRIX_ALLOWED_USERS, MATRIX_USER_ID, members):
+                    logger.info("Found active room: %s (%d participants) matching allowed humans", room.name, room.num_participants)
+                    return room.name
     except Exception:
         logger.exception("Error listing rooms")
     finally:
@@ -802,10 +821,23 @@ async def main():
             # Wait a few seconds for initial connections to establish
             await asyncio.sleep(5)
 
-            # Wait until everyone leaves
+            # Wait until everyone leaves, or self-heal if only non-human
+            # participants remain (e.g. another bridge's agent) for too long.
+            last_human_seen = time.monotonic()
             while True:
-                if bridge.room and len(bridge.room.remote_participants) == 0:
+                remote = bridge.room.remote_participants if bridge.room else {}
+                if len(remote) == 0:
                     logger.info("All participants left. Disconnecting to clear E2EE state...")
+                    break
+                identities = [p.identity for p in remote.values()]
+                if find_allowed_humans(identities, MATRIX_ALLOWED_USERS):
+                    last_human_seen = time.monotonic()
+                elif time.monotonic() - last_human_seen > BRIDGE_IDLE_EXIT_SECONDS:
+                    logger.info(
+                        "No allowed-human participant for %ds (remaining: %s). Exiting session to avoid latch.",
+                        int(time.monotonic() - last_human_seen),
+                        sorted(identities),
+                    )
                     break
                 await asyncio.sleep(1)
 
